@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Integration Calculator</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/11.8.0/math.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-gray-100 min-h-screen font-sans flex flex-col">
+
+    <header class="bg-blue-600 text-white p-4 shadow-md text-center">
+        <h1 class="text-2xl font-bold">Interactive Integration Calculator</h1>
+        <p class="text-sm opacity-90">Visualize and approximate definite integrals using the Trapezoidal Rule</p>
+    </header>
+
+    <main class="flex-1 max-w-6xl w-full mx-auto p-4 grid grid-cols-1 md:grid-cols-3 gap-6">
+        
+        <div class="bg-white p-6 rounded-lg shadow-md flex flex-col justify-between h-fit">
+            <div class="space-y-4">
+                <h2 class="text-xl font-semibold border-b pb-2 text-gray-700">Inputs</h2>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-600">Function f(x)</label>
+                    <input id="func-input" type="text" value="x^2 - 2x + 1" 
+                        class="w-full mt-1 p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none font-mono">
+                    <span id="error-msg" class="text-xs text-red-500 font-medium hidden">Invalid expression</span>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-600">Lower Bound (a)</label>
+                        <input id="a-input" type="number" step="any" value="0" 
+                            class="w-full mt-1 p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-600">Upper Bound (b)</label>
+                        <input id="b-input" type="number" step="any" value="3" 
+                            class="w-full mt-1 p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-600">Intervals / Subdivisions (n)</label>
+                    <input id="n-input" type="range" min="2" max="100" value="20" class="w-full mt-1">
+                    <div class="text-right text-xs text-gray-500" id="n-val">n = 20</div>
+                </div>
+            </div>
+
+            <div class="mt-6 p-4 bg-blue-50 border-l-4 border-blue-500 rounded">
+                <div class="text-sm font-medium text-blue-700 uppercase tracking-wider">Approximated Area</div>
+                <div id="result-display" class="text-3xl font-bold text-gray-800 mt-1">0.0000</div>
+                <div class="text-xs text-gray-500 mt-2 font-mono">
+                    &int;<sub>a</sub><sup>b</sup> f(x) dx &asymp; <span id="formula-result">0</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-white p-4 rounded-lg shadow-md md:col-span-2 flex flex-col items-center justify-center min-h-[400px]">
+            <canvas id="graphCanvas" class="w-full h-full"></canvas>
+        </div>
+
+    </main>
+
+    <footer class="text-center p-4 text-xs text-gray-500">
+        Powered by Math.js and Chart.js
+    </footer>
+
+    <script>
+        // DOM Elements
+        const funcInput = document.getElementById('func-input');
+        const aInput = document.getElementById('a-input');
+        const bInput = document.getElementById('b-input');
+        const nInput = document.getElementById('n-input');
+        const nVal = document.getElementById('n-val');
+        const resultDisplay = document.getElementById('result-display');
+        const errorMsg = document.getElementById('error-msg');
+        const ctx = document.getElementById('graphCanvas').getContext('2d');
+
+        let chart;
+
+        // Math.js Parser Initialization
+        const parser = math.parser();
+
+        // Helper to evaluate f(x) safely
+        function evaluateFunction(expr, x) {
+            try {
+                errorMsg.classList.add('hidden');
+                // Compile the user math string
+                const code = math.compile(expr);
+                return code.evaluate({ x: x });
+            } catch (err) {
+                errorMsg.classList.remove('hidden');
+                return null;
+            }
+        }
+
+        // Numerical Integration using Trapezoidal Rule
+        function calculateTrapezoidal(expr, a, b, n) {
+            const h = (b - a) / n;
+            let sum = 0.5 * (evaluateFunction(expr, a) + evaluateFunction(expr, b));
+            
+            for (let i = 1; i < n; i++) {
+                const x = a + i * h;
+                sum += evaluateFunction(expr, x);
+            }
+            
+            return sum * h;
+        }
+
+        // Function to update calculations and chart data
+        function updateCalculator() {
+            const expr = funcInput.value;
+            const a = parseFloat(aInput.value);
+            const b = parseFloat(bInput.value);
+            const n = parseInt(nInput.value);
+            
+            nVal.innerText = `n = ${n}`;
+
+            if (isNaN(a) || isNaN(b) || a >= b) {
+                resultDisplay.innerText = "Error (a < b)";
+                return;
+            }
+
+            // 1. Calculate integral value
+            const areaValue = calculateTrapezoidal(expr, a, b, n);
+            if (areaValue === null || isNaN(areaValue)) {
+                resultDisplay.innerText = "---";
+                return;
+            }
+            resultDisplay.innerText = areaValue.toFixed(4);
+
+            // 2. Generate Data Points for Charting
+            // We want to draw a buffer zone around our interval [a, b] for context
+            const padding = (b - a) * 0.3 || 1;
+            const xMin = a - padding;
+            const xMax = b + padding;
+            const resolution = 200; // Total smooth curve points
+            
+            const lineData = [];
+            const areaPoints = [];
+
+            // Main smooth curve
+            for (let i = 0; i <= resolution; i++) {
+                const x = xMin + (i * (xMax - xMin) / resolution);
+                const y = evaluateFunction(expr, x);
+                if (y !== null && !isNaN(y)) {
+                    lineData.push({ x: x, y: y });
+                }
+            }
+
+            // Trapezoids area coordinates
+            const h = (b - a) / n;
+            for (let i = 0; i <= n; i++) {
+                const x = a + i * h;
+                const y = evaluateFunction(expr, x);
+                if (y !== null && !isNaN(y)) {
+                    areaPoints.push({ x: x, y: y });
+                }
+            }
+
+            // Update or generate chart instance
+            renderChart(lineData, areaPoints, a, b);
+        }
+
+        function renderChart(lineData, areaPoints, a, b) {
+            if (chart) {
+                chart.destroy();
+            }
+
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    datasets: [
+                        {
+                            label: 'f(x)',
+                            data: lineData,
+                            borderColor: 'rgb(37, 99, 235)',
+                            borderWidth: 3,
+                            pointRadius: 0,
+                            fill: false,
+                            tension: 0.1
+                        },
+                        {
+                            label: 'Integrated Area',
+                            data: areaPoints,
+                            backgroundColor: 'rgba(59, 130, 246, 0.3)',
+                            borderColor: 'rgba(59, 130, 246, 0.6)',
+                            borderWidth: 1,
+                            pointRadius: 2,
+                            fill: 'origin', // Shaded downwards to zero line
+                            stepped: false, // Setting up trapezoids natively 
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            type: 'linear',
+                            position: 'bottom',
+                            grid: { color: '#e5e7eb' },
+                            title: { display: true, text: 'x' }
+                        },
+                        y: {
+                            type: 'linear',
+                            grid: { color: '#e5e7eb' },
+                            title: { display: true, text: 'y' }
+                        }
+                    },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: (context) => `x: ${context.parsed.x.toFixed(2)}, y: ${context.parsed.y.toFixed(2)}`
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Event Listeners for Live Updates
+        [funcInput, aInput, bInput, nInput].forEach(element => {
+            element.addEventListener('input', updateCalculator);
+        });
+
+        // Initialize App on load
+        window.onload = updateCalculator;
+    </script>
+</body>
+</html>
